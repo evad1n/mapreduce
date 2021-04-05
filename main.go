@@ -49,3 +49,7 @@ func localServe(splitDir, addr string) {
 		log.Printf("Error in HTTP server for %s: %v", addr, err)
 	}
 }
+
+func makeURL(host, file string) string {
+	return fmt.Sprintf("http://%s/tmp/%s", host, file)
+}

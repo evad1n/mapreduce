@@ -103,6 +103,11 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 		defer db.Close()
 		outPaths[i] = dir
 
+		stmt, err := db.Prepare("INSERT INTO pairs (key, value) values (?, ?)")
+		if err != nil {
+			return nil, fmt.Errorf("preparing insert statement: %v", err)
+		}
+
 		for r := 0; r < partitionSize; r++ {
 			rows.Next()
 			count++
@@ -110,10 +115,14 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 			if err := rows.Scan(&key, &value); err != nil {
 				return nil, fmt.Errorf("reading a row from source db: %v", err)
 			}
-			if _, err := db.Exec("INSERT INTO pairs (key, value) values (?, ?)", key, value); err != nil {
+			// if _, err := db.Exec("INSERT INTO pairs (key, value) values (?, ?)", key, value); err != nil {
+			// 	return nil, fmt.Errorf("inserting into out db: %v", err)
+			// }
+			if _, err := stmt.Exec(key, value); err != nil {
 				return nil, fmt.Errorf("inserting into out db: %v", err)
 			}
 		}
+		stmt.Close()
 	}
 
 	// Check for errors from iterating over rows.
@@ -141,8 +150,9 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 	return outPaths, nil
 }
 
-func mergeDatabases(urls []string, path string, temp string) (*sql.DB, error) {
-	db, err := createDatabase(path)
+// Merge databases located trough urls into a destination local db, using temp as the temporary write file
+func mergeDatabases(urls []string, dest string, temp string) (*sql.DB, error) {
+	db, err := createDatabase(dest)
 	if err != nil {
 		return nil, fmt.Errorf("creating database: %v", err)
 	}
@@ -164,7 +174,7 @@ func mergeDatabases(urls []string, path string, temp string) (*sql.DB, error) {
 }
 
 // Download a file over HTTP and store in path
-func download(url, path string) error {
+func download(url, dest string) error {
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Errorf("http get: %v", err)
@@ -172,7 +182,7 @@ func download(url, path string) error {
 	defer resp.Body.Close()
 
 	// Create the file
-	out, err := os.Create(path)
+	out, err := os.Create(dest)
 	if err != nil {
 		return fmt.Errorf("creating destination file: %v", err)
 	}
@@ -187,7 +197,7 @@ func download(url, path string) error {
 }
 
 const mergeCmd = `attach ? as merge;
-insert into pairs select * from merge.pairs;
+INSERT INTO pairs SELECT * FROM merge.pairs;
 detach merge;`
 
 // Merges db at path <in> into <out> db
