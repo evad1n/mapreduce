@@ -1,5 +1,5 @@
-all: clean
+all:
 	go run .
 
 clean:
-	rm -rf tmp/* out.db
+	rm -rf tmp/* *.db

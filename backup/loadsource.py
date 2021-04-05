@@ -6,7 +6,7 @@ import os.path
 
 def main():
     if len(sys.argv) < 3:
-        print >>sys.stderr, 'Usage: %s [dbname] [inputfile] ...' % sys.argv[0]
+        print('Usage: %s [dbname] [inputfile] ...'.format(sys.argv[0]))
         sys.exit(-1)
 
     db = sqlite3.connect(sys.argv[1])
@@ -17,8 +17,8 @@ def main():
         fp = open(fname)
         offset = 0
         for line in fp:
-            key = '%s:%9d'.format(os.path.basename(fname), offset)
-            value = str(line.rstrip('\r\n'), 'utf8')
+            key = f'{os.path.basename(fname)}:{offset}'
+            value = line.rstrip('\r\n')
             offset += len(line)
 
             db.execute(u'INSERT INTO pairs VALUES (?, ?)', (key, value))

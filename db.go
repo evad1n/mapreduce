@@ -13,6 +13,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// Opens an existing sqlite3 database
 func openDatabase(path string) (*sql.DB, error) {
 	// the path to the database--this could be an absolute path
 	options :=
@@ -23,13 +24,14 @@ func openDatabase(path string) (*sql.DB, error) {
 			"&" + "_locking_mode=NORMAL" +
 			"&" + "mode=rw" +
 			"&" + "_synchronous=OFF"
-	db, err := sql.Open("sqlite3", path+options)
-	if err != nil {
+	db, _ := sql.Open("sqlite3", path+options)
+	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("opening db %s: %v", path, err)
 	}
 	return db, nil
 }
 
+// Creates a sqlite3 database. If the file already exists, it will be overwritten
 func createDatabase(path string) (*sql.DB, error) {
 	if _, err := os.Stat(path); err == nil {
 		if err := os.Remove(path); err != nil {
@@ -100,7 +102,6 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 		if err != nil {
 			return nil, fmt.Errorf("creating output database: %v", err)
 		}
-		defer db.Close()
 		outPaths[i] = dir
 
 		stmt, err := db.Prepare("INSERT INTO pairs (key, value) values (?, ?)")
@@ -115,14 +116,12 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 			if err := rows.Scan(&key, &value); err != nil {
 				return nil, fmt.Errorf("reading a row from source db: %v", err)
 			}
-			// if _, err := db.Exec("INSERT INTO pairs (key, value) values (?, ?)", key, value); err != nil {
-			// 	return nil, fmt.Errorf("inserting into out db: %v", err)
-			// }
 			if _, err := stmt.Exec(key, value); err != nil {
 				return nil, fmt.Errorf("inserting into out db: %v", err)
 			}
 		}
 		stmt.Close()
+		db.Close()
 	}
 
 	// Check for errors from iterating over rows.
@@ -135,17 +134,6 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 		err := errors.New("wrong number of keys processed")
 		return nil, fmt.Errorf("%v processed: %d, total: %d", err, count, total)
 	}
-
-	// fmt.Printf("DATA:\ntotal:%d | count: %d | tasks: %d\n", total, count, m)
-	// fmt.Printf("SPLIT:\nbase:%d | remainder: %d\n", base, r)
-
-	// for i, p := range outPaths {
-	// 	size := base
-	// 	if i < r {
-	// 		size++
-	// 	}
-	// 	fmt.Printf("%s: %d\n", p, size)
-	// }
 
 	return outPaths, nil
 }
@@ -166,14 +154,14 @@ func mergeDatabases(urls []string, dest string, temp string) (*sql.DB, error) {
 		// Merge and delete temp
 		if err := gatherInto(db, temp); err != nil {
 			db.Close()
-			return nil, fmt.Errorf("merging db %s: %v", url, err)
+			return nil, fmt.Errorf("merging db @(%s): %v", url, err)
 		}
 	}
 
 	return db, nil
 }
 
-// Download a file over HTTP and store in path
+// Download a file over HTTP and store in dest path
 func download(url, dest string) error {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -196,9 +184,9 @@ func download(url, dest string) error {
 	return nil
 }
 
-const mergeCmd = `attach ? as merge;
+const mergeCmd = `ATTACH ? AS merge;
 INSERT INTO pairs SELECT * FROM merge.pairs;
-detach merge;`
+DETACH merge;`
 
 // Merges db at path <in> into <out> db
 func gatherInto(out *sql.DB, in string) error {
