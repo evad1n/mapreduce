@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 
@@ -140,5 +142,64 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 }
 
 func mergeDatabases(urls []string, path string, temp string) (*sql.DB, error) {
-	return nil, nil
+	db, err := createDatabase(path)
+	if err != nil {
+		return nil, fmt.Errorf("creating database: %v", err)
+	}
+
+	for _, url := range urls {
+		// Download and store in temp dir
+		if err := download(url, temp); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("downloading db %s: %v", url, err)
+		}
+		// Merge and delete temp
+		if err := gatherInto(db, temp); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("merging db %s: %v", url, err)
+		}
+	}
+
+	return db, nil
+}
+
+// Download a file over HTTP and store in path
+func download(url, path string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("http get: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Create the file
+	out, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("creating destination file: %v", err)
+	}
+	defer out.Close()
+
+	// Write the body to file
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		return fmt.Errorf("copying data: %v", err)
+	}
+
+	return nil
+}
+
+const mergeCmd = `attach ? as merge;
+insert into pairs select * from merge.pairs;
+detach merge;`
+
+// Merges db at path <in> into <out> db
+func gatherInto(out *sql.DB, in string) error {
+	if _, err := out.Exec(mergeCmd, in); err != nil {
+		return fmt.Errorf("merging db: %v", err)
+	}
+
+	// Delete input file
+	if err := os.Remove(in); err != nil {
+		return fmt.Errorf("removing input file: %v", err)
+	}
+
+	return nil
 }
