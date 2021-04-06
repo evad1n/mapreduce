@@ -64,8 +64,14 @@ func startMaster(client Interface, inputPath, outputPath string) {
 	go actor.waitForJobs(masterNode.Done, done)
 	reduceHosts := <-done
 
+	// Create correct urls
+	outputURLs := make([]string, R)
+	for i := 0; i < R; i++ {
+		outputURLs[i] = makeURL(reduceHosts[i], reduceTasks[i].outputFile())
+	}
+
 	// Gather the reduce outputs and join them into a single output file.
-	outDB, err := mergeDatabases(reduceHosts, outputPath, filepath.Join(tempdir, ""))
+	outDB, err := mergeDatabases(outputURLs, outputPath, filepath.Join(tempdir, "tmp.db"))
 	if err != nil {
 		log.Fatalf("merging reduce output dbs: %v", err)
 	}
@@ -81,7 +87,10 @@ func startMaster(client Interface, inputPath, outputPath string) {
 	}
 	// Shut 'em down
 	for addr := range workers {
-		call(addr, "NodeActor.Terminate", nil, nil)
+		log.Printf("shutting down worker [%s]", addr)
+		if err := call(addr, "NodeActor.Terminate", struct{}{}, nil); err != nil {
+			log.Printf("error shutting down worker: %v", err)
+		}
 	}
 
 	log.Println("Master shutting down...")
@@ -114,7 +123,6 @@ func (a *NodeActor) waitForJobs(taskDone <-chan TaskDone, done chan<- []string) 
 				}
 
 			case n.Phase == 1:
-				// Reduce return addr will have filename too
 				reduceHosts[task.Number] = task.Addr
 				n.DoneJobs++
 

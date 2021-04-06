@@ -51,7 +51,7 @@ func (n *Node) GetNextJob() (interface{}, error) {
 		if n.NextJob < R {
 			return n.ReduceTasks[n.NextJob], nil
 		}
-		return nil, errors.New("waiting for reduce jobs to finish")
+		fallthrough
 	default:
 		return nil, errors.New("no more jobs")
 	}
@@ -118,7 +118,7 @@ func (a NodeActor) Ping(_ struct{}, reply *bool) error {
 
 func (a NodeActor) Terminate(_ struct{}, _ *struct{}) error {
 	a.run(func(n *Node) {
-		shutDown()
+		n.Done <- TaskDone{}
 	})
 	return nil
 }

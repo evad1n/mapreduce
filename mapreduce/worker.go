@@ -12,9 +12,17 @@ func startWorker(client Interface) {
 	if err := os.Mkdir(tempdir, fs.ModePerm); err != nil {
 		log.Fatalf("creating temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempdir)
 
 	go localServe(host, tempdir)
+
+	// FIX: Do i need rpc server for workers?
+	workerNode := Node{
+		Done: make(chan TaskDone),
+	}
+	_, err := workerNode.startRPC()
+	if err != nil {
+		log.Fatalf("can't start RPC server: %v", err)
+	}
 
 	ticker := time.NewTicker(time.Millisecond * 100)
 	for range ticker.C {
@@ -52,7 +60,7 @@ func startWorker(client Interface) {
 			}
 			result := TaskDone{
 				Number: task.N,
-				Addr:   makeURL(host, task.outputFile()), // Add filename for merging
+				Addr:   host, // Add filename for merging
 				Err:    taskErr,
 			}
 			if err := call(masterAddr, "NodeActor.FinishJob", result, nil); err != nil {
@@ -61,10 +69,11 @@ func startWorker(client Interface) {
 		default:
 			log.Fatalf("unknown task type: %v", task)
 		}
-
-		// Signal task is finished
-
 	}
+
+	<-workerNode.Done
+
+	shutDown()
 }
 
 // Graceful shutdown of worker
