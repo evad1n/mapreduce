@@ -51,6 +51,7 @@ func Start(client Interface) error {
 	host = "localhost:" + port
 
 	if master {
+		log.Printf("Starting master node on port %s\n", port)
 		// Verify input and output db
 		if flag.NArg() != 2 {
 			log.Fatalln("Please specify paths to input and output db at end")
@@ -61,6 +62,10 @@ func Start(client Interface) error {
 
 		startMaster(client, inputPath, outputPath)
 	} else {
+		log.Printf("Starting worker node on port %s\n", port)
+		if masterAddr == host {
+			log.Fatalf("master address is same as worker (%s == %s)", masterAddr, host)
+		}
 		startWorker(client)
 	}
 
