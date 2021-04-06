@@ -57,7 +57,7 @@ func startMaster(client Interface, inputPath, outputPath string) {
 		log.Fatalf("can't start RPC server: %v", err)
 	}
 
-	log.Printf("Master [%s] waiting for workers...\n", host)
+	log.Printf("Master @[%s] waiting for workers...\n", host)
 
 	// Wait until all jobs are complete.
 	done := make(chan []string)
@@ -87,7 +87,7 @@ func startMaster(client Interface, inputPath, outputPath string) {
 	}
 	// Shut 'em down
 	for addr := range workers {
-		log.Printf("shutting down worker [%s]", addr)
+		log.Printf("shutting down worker @[%s]", addr)
 		if err := call(addr, "NodeActor.Terminate", struct{}{}, nil); err != nil {
 			log.Printf("error shutting down worker: %v", err)
 		}
