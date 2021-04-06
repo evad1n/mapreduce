@@ -1,4 +1,4 @@
-package main
+package mapreduce
 
 import (
 	"database/sql"
@@ -53,7 +53,7 @@ func (task *ReduceTask) Process(tempdir string, client Interface) error {
 		urls[i] = makeURL(task.SourceHosts[i], task.mapInputFile(i))
 	}
 
-	inDB, err := mergeDatabases(urls, filepath.Join(tempdir, task.inputFile()), "tmp.db")
+	inDB, err := mergeDatabases(urls, filepath.Join(tempdir, task.inputFile()), filepath.Join(tempdir, task.tempFile()))
 	if err != nil {
 		return fmt.Errorf("merging databases: %v", err)
 	}
@@ -96,22 +96,8 @@ func (task *ReduceTask) Process(tempdir string, client Interface) error {
 			return fmt.Errorf("client reduce failure: %v", err)
 		}
 
-		// Wait for goroutines to finish batch
+		// Wait for goroutines to finish batch (pipe write err to read so errors cascade)
 		readDone <- <-writeDone
-		// for i := 0; i < 2; i++ {
-		// 	select {
-		// 	case err := <-readDone:
-		// 		if err != nil {
-		// 			// This should never happen, because it should close channel on err
-		// 			log.Fatalf("Err from closed reading channel")
-		// 		}
-		// 	case err := <-writeDone:
-		// 		if err != nil {
-		// 			// Tell read to stop
-		// 			readDone <- err
-		// 		}
-		// 	}
-		// }
 	}
 
 	// Log stats

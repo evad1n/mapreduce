@@ -1,128 +1,53 @@
 package main
 
 import (
-	"database/sql"
-	"fmt"
-	"io/fs"
 	"log"
-	"net/http"
-	"os"
-	"path/filepath"
-	"runtime"
-)
+	"strconv"
+	"strings"
+	"unicode"
 
-const (
-	host = "localhost:8080"
+	"github.com/evad1n/mapreduce/mapreduce"
 )
 
 func main() {
-	runtime.GOMAXPROCS(1)
-	log.SetFlags(log.Lshortfile)
-
-	// localServe(host, filepath.Join("tmp", fmt.Sprintf("mapreduce.%d", 198597)))
-
-	part2()
+	var c Client
+	if err := mapreduce.Start(c); err != nil {
+		log.Fatalf("%v", err)
+	}
 }
 
-func part1() {
-	tempdir := "tmp"
-	go localServe(host, tempdir)
+// Map and Reduce functions for a basic wordcount client
 
-	paths, err := splitDatabase("data/austen.db", tempdir, "output-%d.db", 20)
-	if err != nil {
-		log.Fatalf("split db: %v", err)
-	}
+type Client struct{}
 
-	db, err := mergeDatabases(paths, "merged.db", "temp.db")
-	if err != nil {
-		log.Fatalf("merge dbs: %v", err)
-	}
-	defer db.Close()
-
-	// Check count
-	var total int
-	if err := db.QueryRow("SELECT COUNT(*) AS count FROM pairs").Scan(&total); err != nil || err == sql.ErrNoRows {
-		log.Fatalf("unable to get total size of data from source db: %v", err)
-	}
-	log.Printf("Rows in merged db: %d", total)
-}
-
-func part2() {
-	tempdir := filepath.Join("tmp", fmt.Sprintf("mapreduce.%d", os.Getpid()))
-	if err := os.Mkdir(tempdir, fs.ModePerm); err != nil {
-		log.Fatalf("creating temp dir: %v", err)
-	}
-	// defer os.RemoveAll(tempdir)
-
-	go localServe(host, tempdir)
-
-	M, R := 9, 3
-
-	_, err := splitDatabase("data/austen.db", tempdir, "map_%d_source.db", M)
-	if err != nil {
-		log.Fatalf("split db: %v", err)
-	}
-
-	hosts := make([]string, M)
-	for i := range hosts {
-		hosts[i] = host
-	}
-
-	// Map
-	log.Println("Map...")
-	for m := 0; m < M; m++ {
-		task := MapTask{
-			M:          M,
-			R:          R,
-			N:          m,
-			SourceHost: host,
-		}
-		if err := task.Process(tempdir, Client{}); err != nil {
-			log.Fatalf("map task: %v", err)
+func (c Client) Map(key, value string, output chan<- mapreduce.Pair) error {
+	defer close(output)
+	lst := strings.Fields(value)
+	for _, elt := range lst {
+		word := strings.Map(func(r rune) rune {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				return unicode.ToLower(r)
+			}
+			return -1
+		}, elt)
+		if len(word) > 0 {
+			output <- mapreduce.Pair{Key: word, Value: "1"}
 		}
 	}
+	return nil
+}
 
-	// // Reduce
-	log.Println("Reduce...")
-	urls := make([]string, R)
-	for i := 0; i < R; i++ {
-		task := ReduceTask{
-			M:           M,
-			R:           R,
-			N:           i,
-			SourceHosts: hosts,
+func (c Client) Reduce(key string, values <-chan string, output chan<- mapreduce.Pair) error {
+	defer close(output)
+	count := 0
+	for v := range values {
+		i, err := strconv.Atoi(v)
+		if err != nil {
+			return err
 		}
-		if err := task.Process(tempdir, Client{}); err != nil {
-			log.Fatalf("reduce task: %v", err)
-		}
-		urls[i] = makeURL(host, task.outputFile())
+		count += i
 	}
-
-	db, err := mergeDatabases(urls, "merged.db", "temp.db")
-	if err != nil {
-		log.Fatalf("merge dbs: %v", err)
-	}
-	defer db.Close()
-
-	// Check count
-	var total int
-	if err := db.QueryRow("SELECT COUNT(*) AS count FROM pairs").Scan(&total); err != nil || err == sql.ErrNoRows {
-		log.Fatalf("unable to get total size of data from source db: %v", err)
-	}
-	log.Printf("Rows in merged db: %d", total)
+	p := mapreduce.Pair{Key: key, Value: strconv.Itoa(count)}
+	output <- p
+	return nil
 }
-
-// Serves data in splitDir over http at addr
-func localServe(host, tempdir string) {
-	http.Handle("/data/", http.StripPrefix("/data", http.FileServer(http.Dir(tempdir))))
-	log.Printf("Serving %s/* at %s", tempdir, makeURL(host, "*"))
-	if err := http.ListenAndServe(host, nil); err != nil {
-		log.Fatalf("Error in HTTP server for %s: %v", host, err)
-	}
-}
-
-func makeURL(host, file string) string {
-	return fmt.Sprintf("http://%s/data/%s", host, file)
-}
-
-// select key, value from pairs order by value+0 desc limit 20
