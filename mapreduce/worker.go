@@ -1,39 +1,55 @@
 package mapreduce
 
 import (
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"time"
 )
 
-func startWorker(client Interface) {
+const (
+	requestInterval = 100 // Milliseconds
+)
+
+func startWorker(client Interface) error {
 	// Start an HTTP server to serve intermediate data files to other workers and back to the master.
 	if err := os.Mkdir(tempdir, fs.ModePerm); err != nil {
-		log.Fatalf("creating temp dir: %v", err)
+		return fmt.Errorf("creating temp dir: %v", err)
 	}
 
 	go localServe(host, tempdir)
 
-	// FIX: Do i need rpc server for workers?
 	workerNode := Node{
 		Done: make(chan TaskDone),
 	}
 	_, err := workerNode.startRPC()
 	if err != nil {
-		log.Fatalf("can't start RPC server: %v", err)
+		return fmt.Errorf("can't start RPC server: %v", err)
 	}
 
-	ticker := time.NewTicker(time.Millisecond * 100)
+	// Notify master
+	var wait bool
+	if err := call(masterAddr, "NodeActor.Ping", host, &wait); err != nil {
+		return fmt.Errorf("connecting to master: %v", err)
+	}
+	if wait {
+		// Wait for master to start the worker
+		<-workerNode.Done
+	}
+
+	ticker := time.NewTicker(time.Millisecond * requestInterval)
+
+JobLoop:
 	for range ticker.C {
 		// Request a job from the master.
 		var job interface{}
 		if err := call(masterAddr, "NodeActor.RequestJob", host, &job); err != nil {
-			log.Printf("requesting job: %v\n", err)
-			// No more jobs
-			if err.Error() == "no more jobs" {
-				break
-			} else {
+			switch err.Error() {
+			case "no more jobs":
+				break JobLoop
+			default:
+				log.Printf("requesting job: %v\n", err)
 				continue
 			}
 		}
@@ -51,7 +67,7 @@ func startWorker(client Interface) {
 				Err:    taskErr,
 			}
 			if err := call(masterAddr, "NodeActor.FinishJob", result, nil); err != nil {
-				log.Fatalf("finishing job: %v\n", err)
+				return fmt.Errorf("finishing job: %v", err)
 			}
 		case ReduceTask:
 			var taskErr error
@@ -64,25 +80,30 @@ func startWorker(client Interface) {
 				Err:    taskErr,
 			}
 			if err := call(masterAddr, "NodeActor.FinishJob", result, nil); err != nil {
-				log.Fatalf("finishing job: %v\n", err)
+				return fmt.Errorf("finishing job: %v", err)
 			}
 		default:
-			log.Fatalf("unknown task type: %v", task)
+			return fmt.Errorf("unknown task type: %v", task)
 		}
 	}
 
 	<-workerNode.Done
 
-	shutDown()
+	if err := shutDown(); err != nil {
+		return fmt.Errorf("shutting down: %v", err)
+	}
+
+	return nil
 }
 
 // Graceful shutdown of worker
-func shutDown() {
+func shutDown() error {
 	// Remove all temp files
 	if err := os.RemoveAll(tempdir); err != nil {
-		log.Fatalf("unable to clear tempdir: %v", err)
+		return fmt.Errorf("unable to clear tempdir: %v", err)
 	}
 
 	log.Println("Shutting down...")
 	os.Exit(0)
+	return nil
 }

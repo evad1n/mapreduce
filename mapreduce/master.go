@@ -1,26 +1,27 @@
 package mapreduce
 
 import (
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 )
 
-func startMaster(client Interface, inputPath, outputPath string) {
+func startMaster(client Interface, inputPath, outputPath string) error {
 	// Split the input file and start an HTTP server to serve source chunks to map workers.
 	if err := os.Mkdir(tempdir, fs.ModePerm); err != nil {
-		log.Fatalf("creating temp dir: %v", err)
+		return fmt.Errorf("creating temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempdir)
 
-	_, err := splitDatabase(inputPath, tempdir, "map_%d_source.db", M)
-	if err != nil {
-		log.Fatalf("split db: %v", err)
-	}
-
 	// Start http server from tempdir
 	go localServe(host, tempdir)
+
+	_, err := splitDatabase(inputPath, tempdir, "map_%d_source.db", M)
+	if err != nil {
+		return fmt.Errorf("split db: %v", err)
+	}
 
 	// Generate the full set of map tasks and reduce tasks. Note that reduce tasks will be incomplete initially, because they require a list of the hosts that handled each map task.
 	mapTasks := make([]MapTask, M)
@@ -54,10 +55,27 @@ func startMaster(client Interface, inputPath, outputPath string) {
 	}
 	actor, err := masterNode.startRPC()
 	if err != nil {
-		log.Fatalf("can't start RPC server: %v", err)
+		return fmt.Errorf("can't start RPC server: %v", err)
 	}
 
-	log.Printf("Master @[%s] waiting for workers...\n", host)
+	// Phase -1 is waiting phase
+	if wait {
+		masterNode.Phase = -1
+		log.Printf("Master @[%s] waiting for user input to start...\n", host)
+		fmt.Println("Press any button to start...")
+		var ignore string
+		fmt.Scanln(&ignore)
+		masterNode.Phase = 0
+		fmt.Println("Starting workers...")
+		for _, workerAddr := range masterNode.Workers {
+			log.Printf("starting worker @[%s]", workerAddr)
+			if err := call(workerAddr, "NodeActor.Signal", struct{}{}, nil); err != nil {
+				log.Printf("error contacting worker: %v", err)
+			}
+		}
+	} else {
+		log.Printf("Master @[%s] waiting for workers...\n", host)
+	}
 
 	// Wait until all jobs are complete.
 	done := make(chan []string)
@@ -73,7 +91,7 @@ func startMaster(client Interface, inputPath, outputPath string) {
 	// Gather the reduce outputs and join them into a single output file.
 	outDB, err := mergeDatabases(outputURLs, outputPath, filepath.Join(tempdir, "tmp.db"))
 	if err != nil {
-		log.Fatalf("merging reduce output dbs: %v", err)
+		return fmt.Errorf("merging reduce output dbs: %v", err)
 	}
 	defer outDB.Close()
 
@@ -88,12 +106,14 @@ func startMaster(client Interface, inputPath, outputPath string) {
 	// Shut 'em down
 	for addr := range workers {
 		log.Printf("shutting down worker @[%s]", addr)
-		if err := call(addr, "NodeActor.Terminate", struct{}{}, nil); err != nil {
+		if err := call(addr, "NodeActor.Signal", struct{}{}, nil); err != nil {
 			log.Printf("error shutting down worker: %v", err)
 		}
 	}
 
 	log.Println("Master shutting down...")
+
+	return nil
 }
 
 func (a *NodeActor) waitForJobs(taskDone <-chan TaskDone, done chan<- []string) {

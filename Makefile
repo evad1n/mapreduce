@@ -1,6 +1,12 @@
 all:
 	go run .
 
+part1:
+	go run . -mode part1
+
+part2:
+	go run . -mode part2
+
 build:
 	go build -o client
 

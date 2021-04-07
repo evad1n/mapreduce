@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
@@ -10,6 +11,9 @@ import (
 )
 
 func main() {
+	runtime.GOMAXPROCS(1)
+	log.SetFlags(log.Lshortfile)
+
 	var c Client
 	if err := mapreduce.Start(c); err != nil {
 		log.Fatalf("%v", err)

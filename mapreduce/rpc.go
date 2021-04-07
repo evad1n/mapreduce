@@ -3,11 +3,11 @@ package mapreduce
 import (
 	"encoding/gob"
 	"errors"
+	"log"
 	"net/rpc"
 )
 
 type (
-	// TODO: should there be 2 differnet nodes master/worker or what...
 	Node struct {
 		Phase       int // Map, reduce or done
 		NextJob     int
@@ -15,6 +15,7 @@ type (
 		MapTasks    []MapTask
 		ReduceTasks []ReduceTask
 		Done        chan TaskDone
+		Workers     []string // Slice of worker addresses
 	}
 
 	// NodeActor represents an RPC actor for the mapreduce node
@@ -30,8 +31,7 @@ type (
 	}
 )
 
-// FIX: This is definitely not right
-// Complains about not registering interface mapreduce.MapTask
+// Need to do this to to allow variable struct passed to RequestJob
 func init() {
 	gob.Register(MapTask{})
 	gob.Register(ReduceTask{})
@@ -40,15 +40,20 @@ func init() {
 // Returns next job, or error of there are no more jobs
 func (n *Node) GetNextJob() (interface{}, error) {
 	switch n.Phase {
+	case -1:
+		// Master was instructed to wait
+		return nil, errors.New("waiting for master")
 	case 0:
 		// Map
 		if n.NextJob < M {
+			log.Printf("Map task %d assigned\n", n.NextJob)
 			return n.MapTasks[n.NextJob], nil
 		}
 		return nil, errors.New("waiting for map jobs to finish")
 	case 1:
 		// Reduce
 		if n.NextJob < R {
+			log.Printf("Reduce task %d assigned\n", n.NextJob)
 			return n.ReduceTasks[n.NextJob], nil
 		}
 		fallthrough
@@ -59,15 +64,9 @@ func (n *Node) GetNextJob() (interface{}, error) {
 
 // Start the RPC server on the node
 func (n *Node) startRPC() (NodeActor, error) {
-	// Make sure port isn't in use frst
-	// listener, err := net.Listen("tcp", host)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("listen error: %v", err)
-	// }
 	actor := n.startActor()
 	rpc.Register(actor)
 	rpc.HandleHTTP()
-	// go http.Serve(listener, nil)
 	return actor, nil
 }
 
@@ -108,15 +107,22 @@ func call(address string, method string, request interface{}, reply interface{})
 	return nil
 }
 
-// Ping simply tests an RPC connection
-func (a NodeActor) Ping(_ struct{}, reply *bool) error {
+// Ping connects a worker to the master
+func (a NodeActor) Ping(addr string, wait *bool) error {
 	a.run(func(n *Node) {
-		*reply = true
+		log.Printf("worker connected from %s\n", addr)
+		if n.Phase == -1 {
+			n.Workers = append(n.Workers, addr)
+			*wait = true
+		} else {
+			*wait = false
+		}
 	})
 	return nil
 }
 
-func (a NodeActor) Terminate(_ struct{}, _ *struct{}) error {
+// Sends a signal to the worker, that is handled according to the phase of the job (start/shutdown)
+func (a NodeActor) Signal(_ struct{}, _ *struct{}) error {
 	a.run(func(n *Node) {
 		n.Done <- TaskDone{}
 	})

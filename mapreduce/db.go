@@ -102,7 +102,7 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 		if err != nil {
 			return nil, fmt.Errorf("creating output database: %v", err)
 		}
-		outPaths[i] = dir
+		outPaths[i] = name
 
 		stmt, err := db.Prepare("INSERT INTO pairs (key, value) values (?, ?)")
 		if err != nil {
@@ -122,6 +122,8 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 		}
 		stmt.Close()
 		db.Close()
+
+		log.Printf("%s: %d; total: %d\n", name, partitionSize, count)
 	}
 
 	// Check for errors from iterating over rows.
