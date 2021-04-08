@@ -17,11 +17,12 @@ func startWorker(client Interface) error {
 	if err := os.Mkdir(tempdir, fs.ModePerm); err != nil {
 		return fmt.Errorf("creating temp dir: %v", err)
 	}
+	defer os.RemoveAll(tempdir)
 
 	go localServe(host, tempdir)
 
 	workerNode := Node{
-		Done: make(chan JobDone),
+		Done: make(chan JobDone, 1),
 	}
 	_, err := workerNode.startRPC()
 	if err != nil {
@@ -48,6 +49,9 @@ JobLoop:
 		// Request a job from the master.
 		var job Job
 		if err := call(masterAddr, "NodeActor.RequestJob", host, &job); err != nil {
+			if lastPhase >= ReduceDone {
+				break JobLoop
+			}
 			return fmt.Errorf("requesting job: %v", err)
 		}
 
@@ -96,21 +100,6 @@ JobLoop:
 	log.Println("Waiting for master to finish...")
 	<-workerNode.Done
 
-	if err := shutDown(); err != nil {
-		return fmt.Errorf("shutting down: %v", err)
-	}
-
-	return nil
-}
-
-// Graceful shutdown of worker
-func shutDown() error {
-	// Remove all temp files
-	if err := os.RemoveAll(tempdir); err != nil {
-		return fmt.Errorf("unable to clear tempdir: %v", err)
-	}
-
 	log.Println("Shutting down...")
-	os.Exit(0)
 	return nil
 }

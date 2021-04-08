@@ -38,6 +38,7 @@ var (
 
 func Start(client Interface) error {
 	// FIX: what dis do?
+	// FIX: rpc unexpected EOF meaning?
 	// TODO: get addr of rpc request client
 	// TODO: good buffered channel size?
 	runtime.GOMAXPROCS(1)
