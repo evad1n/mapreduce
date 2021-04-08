@@ -39,12 +39,12 @@ var (
 func Start(client Interface) error {
 	// FIX: what dis do?
 	// TODO: get addr of rpc request client
+	// TODO: good buffered channel size?
 	runtime.GOMAXPROCS(1)
-
 	log.SetFlags(log.Lshortfile)
 
 	flag.BoolVar(&master, "master", false, "Whether this node is the master or a worker")
-	flag.BoolVar(&wait, "wait", true, "Should workers wait for a master signal or start immediately upon joining")
+	flag.BoolVar(&wait, "wait", false, "Should workers wait for a master signal or start immediately upon joining")
 	flag.StringVar(&masterAddr, "masterAddr", "localhost:8080", "Address of the master node")
 	flag.StringVar(&port, "port", "8080", "The port to listen on")
 	flag.StringVar(&tempdir, "tempdir", filepath.Join("tmp", fmt.Sprintf("mapreduce.%d", os.Getpid())), "The directory to store temporary files in")
@@ -59,7 +59,7 @@ func Start(client Interface) error {
 	host = "localhost:" + port
 
 	// For serving test
-	// localServe(host, filepath.Join("tmp", fmt.Sprintf("mapreduce.%d", 118779)))
+	// localServe(host, filepath.Join("tmp", fmt.Sprintf("mapreduce.%d", 244282)))
 
 	switch mode {
 	case "part1":
@@ -78,6 +78,7 @@ func Start(client Interface) error {
 		log.Printf("Starting master node on port %s\n", port)
 		// Verify input and output db
 		if flag.NArg() != 2 {
+			fmt.Fprintln(os.Stderr, "USAGE: PROGRAM -master <INPUT_DB> <OUTPUT_DB>")
 			return errors.New("specify paths to input and output db at end")
 		}
 		inputPath := flag.Arg(0)

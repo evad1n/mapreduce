@@ -123,7 +123,7 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 		stmt.Close()
 		db.Close()
 
-		log.Printf("%s: %d; total: %d\n", name, partitionSize, count)
+		log.Printf("%s => size: %d; total: %d\n", name, partitionSize, count)
 	}
 
 	// Check for errors from iterating over rows.
@@ -134,7 +134,7 @@ func splitDatabase(source, outputDir, outputPattern string, m int) ([]string, er
 	// Verify all rows were processed
 	if count != total {
 		err := errors.New("wrong number of keys processed")
-		return nil, fmt.Errorf("%v processed: %d, total: %d", err, count, total)
+		return nil, fmt.Errorf("%v; processed: %d, total: %d", err, count, total)
 	}
 
 	return outPaths, nil

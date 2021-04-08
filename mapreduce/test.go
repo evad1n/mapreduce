@@ -118,6 +118,7 @@ func part2(client Interface) error {
 	return nil
 }
 
+// Outside verification of intermediate file creation
 func getFileCount(dir string) int {
 	files, err := ioutil.ReadDir(tempdir)
 	if err != nil {

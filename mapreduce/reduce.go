@@ -34,10 +34,6 @@ func (task *ReduceTask) outputFile() string {
 	return fmt.Sprintf("reduce_%d_output.db", task.N)
 }
 
-func (task *ReduceTask) partialFile() string {
-	return fmt.Sprintf("reduce_%d_partial.db", task.N)
-}
-
 func (task *ReduceTask) tempFile() string {
 	return fmt.Sprintf("reduce_%d_temp.db", task.N)
 }
@@ -88,7 +84,7 @@ func (task *ReduceTask) Process(tempdir string, client Interface) error {
 
 	for batch := range keyBatches {
 		keyCount++
-		reduceOut := make(chan Pair, 100)
+		reduceOut := make(chan Pair, 200)
 
 		go task.writeOutput(reduceOut, writeDone, outStmt, &outCount)
 
@@ -152,7 +148,7 @@ func readInput(rows *sql.Rows, batchChannel chan<- KeyBatch, done chan error, va
 				}
 			}
 			// Start new batch
-			currInput = make(chan string, 100)
+			currInput = make(chan string, 200)
 			batchChannel <- KeyBatch{
 				Key:   key,
 				Input: currInput,

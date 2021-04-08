@@ -1,8 +1,6 @@
 package mapreduce
 
 import (
-	"encoding/gob"
-	"errors"
 	"log"
 	"net/rpc"
 )
@@ -14,8 +12,8 @@ type (
 		DoneJobs    int
 		MapTasks    []MapTask
 		ReduceTasks []ReduceTask
-		Done        chan TaskDone
-		Workers     []string // Slice of worker addresses
+		Done        chan JobDone
+		Workers     map[string]struct{} // Worker addresses
 	}
 
 	// NodeActor represents an RPC actor for the mapreduce node
@@ -24,42 +22,63 @@ type (
 	handler func(*Node)
 
 	// RPC structs
-	TaskDone struct {
+	Job struct {
+		Phase      int
+		Wait       bool // Whether this Job contains an actual job or the worker should just wait
+		MapTask    *MapTask
+		ReduceTask *ReduceTask
+	}
+
+	JobDone struct {
 		Number int
 		Addr   string
-		Err    error
 	}
 )
 
-// Need to do this to to allow variable struct passed to RequestJob
-func init() {
-	gob.Register(MapTask{})
-	gob.Register(ReduceTask{})
-}
+const (
+	Wait = iota
+	Map
+	MapDone
+	Reduce
+	ReduceDone
+	Merge
+	Finish
+)
 
 // Returns next job, or error of there are no more jobs
-func (n *Node) GetNextJob() (interface{}, error) {
+func (n *Node) GetNextJob(workerAddr string) Job {
+	job := Job{
+		Phase: n.Phase,
+		Wait:  true,
+	}
 	switch n.Phase {
-	case -1:
-		// Master was instructed to wait
-		return nil, errors.New("waiting for master")
-	case 0:
+	case Map:
 		// Map
 		if n.NextJob < M {
-			log.Printf("Map task %d assigned\n", n.NextJob)
-			return n.MapTasks[n.NextJob], nil
+			log.Printf("Map task %d assigned to [%s]\n", n.NextJob, workerAddr)
+			job.MapTask = &n.MapTasks[n.NextJob]
+			job.Wait = false
+			n.NextJob++
+
+			if n.NextJob >= M {
+				n.Phase = MapDone
+			}
 		}
-		return nil, errors.New("waiting for map jobs to finish")
-	case 1:
+	case Reduce:
 		// Reduce
 		if n.NextJob < R {
-			log.Printf("Reduce task %d assigned\n", n.NextJob)
-			return n.ReduceTasks[n.NextJob], nil
+			log.Printf("Reduce task %d assigned to [%s]\n", n.NextJob, workerAddr)
+			job.ReduceTask = &n.ReduceTasks[n.NextJob]
+			job.Wait = false
+			n.NextJob++
+
+			if n.NextJob >= R {
+				n.Phase = ReduceDone
+			}
 		}
-		fallthrough
-	default:
-		return nil, errors.New("no more jobs")
 	}
+
+	return job
 }
 
 // Start the RPC server on the node
@@ -111,8 +130,8 @@ func call(address string, method string, request interface{}, reply interface{})
 func (a NodeActor) Ping(addr string, wait *bool) error {
 	a.run(func(n *Node) {
 		log.Printf("worker connected from %s\n", addr)
-		if n.Phase == -1 {
-			n.Workers = append(n.Workers, addr)
+		n.Workers[addr] = struct{}{}
+		if n.Phase == Wait {
 			*wait = true
 		} else {
 			*wait = false
@@ -124,25 +143,23 @@ func (a NodeActor) Ping(addr string, wait *bool) error {
 // Sends a signal to the worker, that is handled according to the phase of the job (start/shutdown)
 func (a NodeActor) Signal(_ struct{}, _ *struct{}) error {
 	a.run(func(n *Node) {
-		n.Done <- TaskDone{}
+		n.Done <- JobDone{}
 	})
 	return nil
 }
 
 // A worker requests a job from the master
-func (a NodeActor) RequestJob(workerAddr string, job *interface{}) error {
+func (a NodeActor) RequestJob(workerAddr string, job *Job) error {
 	var err error
 	a.run(func(n *Node) {
-		if *job, err = n.GetNextJob(); err == nil {
-			n.NextJob++
-		}
+		*job = n.GetNextJob(workerAddr)
 	})
 	return err
 }
 
-func (a NodeActor) FinishJob(task TaskDone, _ *struct{}) error {
+func (a NodeActor) FinishJob(job JobDone, _ *struct{}) error {
 	a.run(func(n *Node) {
-		n.Done <- task
+		n.Done <- job
 	})
 
 	return nil

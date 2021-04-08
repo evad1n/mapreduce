@@ -21,7 +21,7 @@ func startWorker(client Interface) error {
 	go localServe(host, tempdir)
 
 	workerNode := Node{
-		Done: make(chan TaskDone),
+		Done: make(chan JobDone),
 	}
 	_, err := workerNode.startRPC()
 	if err != nil {
@@ -35,58 +35,65 @@ func startWorker(client Interface) error {
 	}
 	if wait {
 		// Wait for master to start the worker
+		log.Println("Waiting for master to start...")
 		<-workerNode.Done
 	}
 
 	ticker := time.NewTicker(time.Millisecond * requestInterval)
 
+	lastPhase := Wait
+
 JobLoop:
 	for range ticker.C {
 		// Request a job from the master.
-		var job interface{}
+		var job Job
 		if err := call(masterAddr, "NodeActor.RequestJob", host, &job); err != nil {
-			switch err.Error() {
-			case "no more jobs":
-				break JobLoop
-			default:
-				log.Printf("requesting job: %v\n", err)
-				continue
-			}
+			return fmt.Errorf("requesting job: %v", err)
 		}
 
 		// Determine type of task and process accordingly
-		switch task := job.(type) {
-		case MapTask:
-			var taskErr error
-			if taskErr = task.Process(tempdir, client); taskErr != nil {
-				log.Printf("reduce task: %v\n", taskErr)
+		if !job.Wait {
+			if job.Phase == Map {
+				task := job.MapTask
+				if err := task.Process(tempdir, client); err != nil {
+					return fmt.Errorf("map job: %v", err)
+				}
+				result := JobDone{
+					Number: task.N,
+					Addr:   host,
+				}
+				if err := call(masterAddr, "NodeActor.FinishJob", result, nil); err != nil {
+					return fmt.Errorf("finishing map job: %v", err)
+				}
+			} else {
+				task := job.ReduceTask
+				if err = task.Process(tempdir, client); err != nil {
+					return fmt.Errorf("reduce job: %v", err)
+				}
+				result := JobDone{
+					Number: task.N,
+					Addr:   host,
+				}
+				if err := call(masterAddr, "NodeActor.FinishJob", result, nil); err != nil {
+					return fmt.Errorf("finishing reduce job: %v", err)
+				}
 			}
-			result := TaskDone{
-				Number: task.N,
-				Addr:   host,
-				Err:    taskErr,
+		} else {
+			if job.Phase != lastPhase {
+				switch job.Phase {
+				case MapDone:
+					log.Println("Waiting for map jobs to finish...")
+				case ReduceDone:
+					log.Println("Waiting for reduce jobs to finish...")
+				default:
+					break JobLoop
+				}
 			}
-			if err := call(masterAddr, "NodeActor.FinishJob", result, nil); err != nil {
-				return fmt.Errorf("finishing job: %v", err)
-			}
-		case ReduceTask:
-			var taskErr error
-			if taskErr = task.Process(tempdir, client); taskErr != nil {
-				log.Printf("reduce task: %v\n", taskErr)
-			}
-			result := TaskDone{
-				Number: task.N,
-				Addr:   host, // Add filename for merging
-				Err:    taskErr,
-			}
-			if err := call(masterAddr, "NodeActor.FinishJob", result, nil); err != nil {
-				return fmt.Errorf("finishing job: %v", err)
-			}
-		default:
-			return fmt.Errorf("unknown task type: %v", task)
 		}
+		lastPhase = job.Phase
 	}
 
+	log.Println("Waiting for master to finish...")
 	<-workerNode.Done
 
 	if err := shutDown(); err != nil {

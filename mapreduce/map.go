@@ -84,12 +84,13 @@ func (task *MapTask) Process(tempdir string, client Interface) error {
 		mapOut := make(chan Pair, 200)
 		done := make(chan error)
 
+		// Goroutine for writing intermediate kv
+		go task.writeOutput(mapOut, done, outStmts, &outCount)
+
 		if err := client.Map(key, value, mapOut); err != nil {
 			return fmt.Errorf("client map failure: %v", err)
 		}
 
-		// Goroutine for writing intermediate kv
-		go task.writeOutput(mapOut, done, outStmts, &outCount)
 		// Wait for writing to finish
 		if err := <-done; err != nil {
 			return fmt.Errorf("writing output: %v", err)
@@ -102,7 +103,7 @@ func (task *MapTask) Process(tempdir string, client Interface) error {
 	}
 
 	// Log stats
-	log.Printf("map task %d processed %d pairs, generated %d pairs\n", task.N, inCount, outCount)
+	log.Printf("map task %d processed %d pairs, generated %d pairs, created %d intermediate output files\n", task.N, inCount, outCount, task.R)
 
 	return nil
 }

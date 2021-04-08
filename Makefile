@@ -11,7 +11,7 @@ build:
 	go build -o client
 
 master:
-	go run . -master data/austen.db  out.db
+	go run . -master -wait data/austen.db  out.db
 
 clean:
 	rm -rf tmp/* *.db
