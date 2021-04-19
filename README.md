@@ -34,5 +34,3 @@ For the master
   -wait
         Should workers wait for a master signal or start immediately upon joining
 ```
-
-http://cit.dixie.edu/cs/3410/asst_mapreduce.php
