@@ -44,6 +44,7 @@ func startWorker(client Interface) error {
 
 	lastPhase := Wait
 
+	// Label to break out of nested scopes
 JobLoop:
 	for range ticker.C {
 		// Request a job from the master.
@@ -59,6 +60,7 @@ JobLoop:
 		if !job.Wait {
 			if job.Phase == Map {
 				task := job.MapTask
+				log.Printf("Received map task %d. Processing...\n", task.N)
 				if err := task.Process(tempdir, client); err != nil {
 					return fmt.Errorf("map job: %v", err)
 				}
@@ -71,6 +73,7 @@ JobLoop:
 				}
 			} else {
 				task := job.ReduceTask
+				log.Printf("Received reduce task %d. Processing...\n", task.N)
 				if err = task.Process(tempdir, client); err != nil {
 					return fmt.Errorf("reduce job: %v", err)
 				}
@@ -83,6 +86,7 @@ JobLoop:
 				}
 			}
 		} else {
+			// Log reason for waiting
 			if job.Phase != lastPhase {
 				switch job.Phase {
 				case MapDone:

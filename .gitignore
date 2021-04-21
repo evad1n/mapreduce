@@ -1,4 +1,5 @@
 *.db
+*.exe
 
 tmp
 data

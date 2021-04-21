@@ -116,8 +116,10 @@ func (a *NodeActor) waitForJobs(taskDone <-chan JobDone) []string {
 	mapHosts := make([]string, M)
 	reduceHosts := make([]string, R)
 
+	// As tasks are completed, they are sent to this channel
 	for task := range taskDone {
-		var currPhase int
+		var currPhase Phase
+		// Wrap data access in actor model to prevent race conditions
 		a.run(func(n *Node) {
 			switch {
 			case n.Phase == Map || n.Phase == MapDone:
@@ -156,6 +158,7 @@ func (a *NodeActor) waitForJobs(taskDone <-chan JobDone) []string {
 			}
 			currPhase = n.Phase
 		})
+		// End this loop outside the closure
 		if currPhase >= Merge {
 			break
 		}

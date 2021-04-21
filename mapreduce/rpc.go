@@ -7,7 +7,7 @@ import (
 
 type (
 	Node struct {
-		Phase       int // Map, reduce or done
+		Phase       Phase
 		NextJob     int
 		DoneJobs    int
 		MapTasks    []MapTask
@@ -23,7 +23,7 @@ type (
 
 	// RPC structs
 	Job struct {
-		Phase      int
+		Phase      Phase
 		Wait       bool // Whether this Job contains an actual job or the worker should just wait
 		MapTask    *MapTask
 		ReduceTask *ReduceTask
@@ -33,10 +33,14 @@ type (
 		Number int
 		Addr   string
 	}
+
+	// The phase of the MapReduce program
+	Phase int
 )
 
+// Phase enums
 const (
-	Wait = iota
+	Wait Phase = iota
 	Map
 	MapDone
 	Reduce
@@ -45,7 +49,7 @@ const (
 	Finish
 )
 
-// Returns next job, or error of there are no more jobs
+// Returns next job, if there is no job then the Wait field is set to true
 func (n *Node) GetNextJob(workerAddr string) Job {
 	job := Job{
 		Phase: n.Phase,

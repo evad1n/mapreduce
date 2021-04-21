@@ -10,8 +10,11 @@ part2:
 build:
 	go build -o client.exe
 
+race: 
+	go build -race -o client.exe
+
 master:
 	go run . -master -wait data/austen.db  out.db
 
 clean:
-	rm -rf tmp/* *.db client.exe
+	rm -rf tmp/* *.db *.exe
