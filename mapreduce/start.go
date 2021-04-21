@@ -41,7 +41,7 @@ func Start(client Interface) error {
 	log.SetFlags(log.Lshortfile)
 
 	flag.BoolVar(&master, "master", false, "Whether this node is the master or a worker")
-	flag.BoolVar(&wait, "wait", false, "Should workers wait for a master signal or start immediately upon joining")
+	flag.BoolVar(&wait, "wait", false, "Should workers wait for a master signal (keypress) or start immediately upon joining")
 	flag.StringVar(&masterAddr, "address", "localhost:8080", "Address of the master node")
 	flag.StringVar(&port, "port", "8080", "The port to listen on")
 	flag.StringVar(&tempdir, "tempdir", filepath.Join("tmp", fmt.Sprintf("mapreduce.%d", os.Getpid())), "The directory to store temporary files in")
